@@ -1,7 +1,9 @@
 from fastapi import FastAPI, Request
 from typing import List
 import asyncio
+import torch
 
+from model_template import CustomTorchModel, InputData, ModelPath
 from fastapi.openapi.models import Response
 
 
@@ -12,6 +14,7 @@ class BatchProcessor:
     def __init__(self, batch_size : int):
         self.batch_size = batch_size
         self.queue = list()
+        self.lock = asyncio.Lock()
 
 
     async def process_batch(self):
@@ -29,10 +32,19 @@ class BatchProcessor:
 
     # TODO: Implement ML interfacing logic
     def ml_inference(self, batch: List[Request]):
-        return [(req, {"result": "dummy result"}) for req in batch]
+        inputs = torch.tensor([data.json()['features'] for data in batch], dtype=torch.float32)
+        with torch.no_grad():
+            outputs = model(inputs).numpy()
+        # return [(req, {"result": "dummy result"}) for req in batch]
+        return [(req, {"result": output.tolist()}) for req, output in zip(batch, outputs)]
 
 
 batch_processor = BatchProcessor(batch_size=10)
+
+model = CustomTorchModel()
+m_pth = input()
+model.load_state_dict(torch.load(f'{m_pth}'))
+
 
 
 @app.on_event("startup")
@@ -41,6 +53,9 @@ async def startup_event():
 
 
 @app.post("/inference")
-async def inference(request: Request) -> Response:
-    batch_processor.queue.append(request)
+async def inference(data: InputData, request: Request) -> Response:
+    async with batch_processor.lock:
+        batch_processor.queue.append((request, data))
+    # batch_processor.queue.append(request)
     return await request.response # this will keep request open till processing is over
+
