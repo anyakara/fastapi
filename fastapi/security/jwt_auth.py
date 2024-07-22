@@ -1,9 +1,15 @@
 # @JVP Design Tutorial Under Test - Heavily Modified for Multipurpose Application
 # TODO: Documentation
 
+from datetime import timedelta
+from http.client import HTTPException
+from docs_src.async_sql_databases.tutorial001 import startup
 from pydantic import BaseModel
-from oauth2 import OAuth2, OAuth2PasswordBearer, OAuth2AuthorizationCodeBearer, CryptContext, OAuth2PassworRequestForm
+from oauth2 import OAuth2, OAuth2PasswordBearer, OAuth2AuthorizationCodeBearer, OAuth2PasswordRequestForm
 from fastapi import FastAPI
+import datetime
+from passlib.context import CryptContext
+
 
 SECRET_KEY = "temporarykeyforthisimplementation"
 ALGORITHM = "HS256"
@@ -26,6 +32,9 @@ TEST_USR_DB = dict(
         disables=False)
 )
 
+# TODO: Build JWT DataModel
+class JWT(BaseModel):
+    pass
 
 class Token(BaseModel):
     access_token: str
@@ -79,8 +88,32 @@ class JWTAuthManager():
 # TODO: migrate logic to another code file for organization
 app = FastAPI()
 
+
+def create_access_token(data: dict, jwt: JWT, expires_delta: timedelta | None = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utnow() + expires_delta
+    else:
+        expire = datetime.utnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    # undefined variable jwt
+
+
+
 @app.post("/token", response_model=Token)
-async def login_for_access_token(form_data: OAuth2PassworRequestForm):
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm=None):
     jwt_auth = JWTAuthManager()
     user = jwt_auth.authenticate_user(TEST_USR_DB, form_data.username, form_data.password)
-    # continue implementation
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Provided incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+    
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        date={"sub": user.username}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
